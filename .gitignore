@@ -1,0 +1,22 @@
+# Datasets and Images
+data/
+*.jpg
+*.png
+
+# Python Environments and Cache
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+
+# Jupyter Notebooks
+.ipynb_checkpoints/
+
+# Modbus Stream Files
+*.bin
+
+# OS Generated Files
+.DS_Store
+Thumbs.db
