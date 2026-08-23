@@ -14,8 +14,9 @@ from baseline_model import BestenSingle
 from dataset import UnifiedPedestrianDataset
 from utils import MaskedBCEWithLogitsLoss, calculate_masked_metrics, rand_bbox
 
+# --- UPDATED 21-ATTRIBUTE SCHEMA ---
 SCHEMA_KEYS = [
-    "Female", "Age_Child", "Age_Over_60", "Bald", "Short_Hair", "Long_Hair",
+    "Female", "Male", "Age_Child", "Age_Adult", "Bald", "Short_Hair", "Long_Hair",
     "Backpack", "Hat", "Glasses", "Handbag", "MessengerBag", "PlasticBag",
     "ShortSleeve", "LongSleeve", "Trousers", "Shorts", "Skirt_or_Dress",
     "Boots", "Sneakers", "LeatherShoes"
@@ -23,9 +24,20 @@ SCHEMA_KEYS = [
 
 def get_train_transforms():
     return T.Compose([
+    # 1. Spatial & Color Augmentations (Applied to the PIL Image)
         T.RandomHorizontalFlip(p=0.5), 
+        T.RandomAffine(degrees=5, translate=(0.05, 0.05)),
+        T.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.05),
+        T.RandomApply([T.GaussianBlur(kernel_size=3)], p=0.2),
+        
+        # 2. Convert to Tensor
         T.ToTensor(),
-        T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        
+        # 3. Normalize (Must happen before RandomErasing)
+        T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        
+        # 4. Occlusion (Applied to the Tensor)
+        T.RandomErasing(p=0.2, scale=(0.02, 0.1))
     ])
 
 def get_val_transforms():
@@ -43,12 +55,14 @@ def train_model(run_name="baseline", start_lr=0.1, end_lr=1e-5, total_epochs=20,
 
     train_dataset = UnifiedPedestrianDataset("./data/unified_train.csv", transform=get_train_transforms())
     val_dataset = UnifiedPedestrianDataset("./data/unified_val.csv", transform=get_val_transforms())
-    train_loader = DataLoader(train_dataset, batch_size=128, shuffle=True, num_workers=0, pin_memory=True)
-    val_loader = DataLoader(val_dataset, batch_size=128, shuffle=False, num_workers=0, pin_memory=True)
+    train_loader = DataLoader(train_dataset, batch_size=128, shuffle=True, num_workers=4, pin_memory=True , persistent_workers=True)
+    val_loader = DataLoader(val_dataset, batch_size=128, shuffle=False, num_workers=4, pin_memory=True, persistent_workers=True)
+
+    current_layer_config = [(4, 64, 2), (4, 128, 2), (4, 256, 2), (4, 512, 2), (1, 1024, 2)]
 
     model = BestenSingle(
         num_classes=len(SCHEMA_KEYS), 
-        layer_config=[(4, 64, 2), (4, 128, 2), (4, 256, 2), (4, 512, 2), (1, 1024, 2)]
+        layer_config=current_layer_config
     ).to(device)
 
     criterion = MaskedBCEWithLogitsLoss()
@@ -173,6 +187,7 @@ def train_model(run_name="baseline", start_lr=0.1, end_lr=1e-5, total_epochs=20,
                 'scaler_state_dict': scaler.state_dict(),
                 'best_f1': best_f1,
                 'schema': SCHEMA_KEYS,
+                'layer_config': current_layer_config, # <--- New identifier!
                 'start_lr': start_lr,
                 'end_lr': end_lr,
                 'last_lr': lr, 
