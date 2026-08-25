@@ -14,12 +14,30 @@ from baseline_model import BestenSingle
 from dataset import UnifiedPedestrianDataset
 from utils import MaskedBCEWithLogitsLoss, calculate_masked_metrics, rand_bbox
 
-# --- UPDATED 21-ATTRIBUTE SCHEMA ---
+
 SCHEMA_KEYS = [
-    "Female", "Male", "Age_Child", "Age_Adult", "Bald", "Short_Hair", "Long_Hair",
-    "Backpack", "Hat", "Glasses", "Handbag", "MessengerBag", "PlasticBag",
-    "ShortSleeve", "LongSleeve", "Trousers", "Shorts", "Skirt_or_Dress",
-    "Boots", "Sneakers", "LeatherShoes"
+    # --- ANGLE / VIEWPOINT --- 
+    "View_Front", "View_Back", "View_Side",
+    
+    # --- DEMOGRAPHICS ---
+    "Female", "Male", "Age_Child", "Age_Adult", "Age_Senior",
+    
+    # --- HAIRSTYLES ---
+    "Bald", "Short_Hair", "Long_Hair",
+    
+    # --- ACCESSORIES & CARRYING ---
+    "Backpack", "Hat", "Glasses", "Muffler_Scarf", "ShoulderBag", 
+    "HandBag", "PlasticBag", "CarryingOther",
+    
+    # --- UPPER CLOTHING ---
+    "ShortSleeve", "LongSleeve", "Tshirt", "Jacket", "LongCoat", 
+    "Logo", "Plaid", "Stripe",
+    
+    # --- LOWER CLOTHING ---
+    "Trousers", "Jeans", "Shorts", "Skirt_or_Dress",
+    
+    # --- FOOTWEAR ---
+    "Boots", "Sneakers", "LeatherShoes", "Sandals"
 ]
 
 def get_train_transforms():

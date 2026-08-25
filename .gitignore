@@ -3,6 +3,9 @@ data/
 *.jpg
 *.png
 
+*.mp4
+*.pt
+
 # Python Environments and Cache
 __pycache__/
 *.py[cod]
