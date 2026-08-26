@@ -1,0 +1,6 @@
+# MediaMTX configuration allowing any RTSP publish path
+paths:
+  all:
+    runOnInit: ""
+    runOnInitRestart: false
+    source: publisher

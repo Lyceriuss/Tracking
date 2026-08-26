@@ -1,0 +1,18 @@
+FROM alpine:3.19
+
+RUN apk add --no-cache bash ffmpeg curl
+
+# Download MediaMTX binary
+RUN ARCH=$(uname -m) && \
+    if [ "$ARCH" = "x86_64" ]; then MMTX_ARCH="amd64"; \
+    elif [ "$ARCH" = "aarch64" ]; then MMTX_ARCH="arm64"; \
+    else MMTX_ARCH="amd64"; fi && \
+    curl -sL https://github.com/bluenviron/mediamtx/releases/download/v1.9.3/mediamtx_v1.9.3_linux_${MMTX_ARCH}.tar.gz | tar -xz -C /usr/local/bin mediamtx
+
+WORKDIR /streamer
+
+COPY test_video.mp4 /streamer/test_video.mp4
+COPY mediamtx.yml /streamer/mediamtx.yml
+
+# Explicitly pass the configuration file to mediamtx on startup
+CMD ["sh", "-c", "mediamtx /streamer/mediamtx.yml & sleep 1 && ffmpeg -stream_loop -1 -re -i /streamer/test_video.mp4 -c copy -f rtsp rtsp://localhost:8554/live/stream"]
