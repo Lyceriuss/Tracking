@@ -2,6 +2,7 @@
 data/
 *.jpg
 *.png
+exports/
 
 *.mp4
 *.pt

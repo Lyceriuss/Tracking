@@ -180,7 +180,7 @@ def run_inference_engine(args):
                         x2, y2 = min(frame.shape[1], x2), min(frame.shape[0], y2)
                         
                         bbox_height, bbox_width = y2 - y1, x2 - x1
-                        if bbox_height > 25 and (ped_crop := frame[y1:y2, x1:x2]).size > 0:
+                        if bbox_height > 25 and (ped_crop := frame[y1:y2, x1:x2].copy()).size > 0:
                             batch_tensors.append(preprocess_crop(ped_crop))
                             batch_metadata.append((track_id, (x1, y1, x2, y2), bbox_height * bbox_width, ped_crop))
             
