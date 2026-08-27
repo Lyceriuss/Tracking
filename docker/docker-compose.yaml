@@ -22,5 +22,6 @@ services:
       - STREAM_SOURCE=rtsp://streamer_1:8554/live/stream
       - MODEL_PATH=/app/baseline_v4_prod.onnx
       - FLASK_PORT=5000
+      - TZ=Europe/Stockholm   
     depends_on:
       - streamer_1

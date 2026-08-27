@@ -32,6 +32,15 @@ engine_config = {
     "current_samples": len(glob.glob(os.path.join(EXPORT_DIR, "track_*")))
 }
 
+# --- EVENT LOGGER ---
+event_logs = []
+MAX_LOGS = 50 
+
+def add_log_event(event_dict):
+    event_logs.insert(0, event_dict)
+    if len(event_logs) > MAX_LOGS:
+        event_logs.pop()
+
 # --- FLASK SETUP & STATE ---
 app = Flask(__name__)
 output_frame = None
@@ -148,35 +157,54 @@ HTML_TEMPLATE = """
     .btn-on { background: #00ffcc; color: #000; }
     .stats { margin-top: 30px; padding-top: 20px; border-top: 1px solid #333; }
     .stat-row { display: flex; justify-content: space-between; margin-bottom: 10px; font-size: 1.1em; }
+    
+    .log-panel { max-width: 1400px; width: 100%; margin: 20px auto; background: #1e1e1e; padding: 20px; border-radius: 12px; border: 1px solid #333; box-sizing: border-box; }
+    .log-panel h3 { margin: 0 0 15px 0; color: #00ffcc; font-size: 1.2em; border-bottom: 1px solid #333; padding-bottom: 10px; }
+    .table-container { max-height: 250px; overflow-y: auto; }
+    .log-table { width: 100%; text-align: left; border-collapse: collapse; font-size: 0.95em; }
+    .log-table th { padding: 10px; color: #888; border-bottom: 2px solid #333; position: sticky; top: 0; background: #1e1e1e; }
+    .log-table td { padding: 12px 10px; border-bottom: 1px solid #2a2a2a; color: #ccc; }
+    .log-table tr:hover td { background: #252525; }
+    .badge { background: #333; color: #00ffcc; padding: 3px 8px; border-radius: 4px; font-weight: bold; font-size: 0.9em; }
 </style></head><body>
 <header>
     <h1>PAR AI STUDIO</h1>
     <nav><a href="/" class="active">Live Engine</a><a href="/review">Data Review</a></nav>
 </header>
 <div class="layout">
-    <div class="video-container">
-        <img src="/video_feed" alt="Live Stream">
-    </div>
+    <div class="video-container"><img src="/video_feed" alt="Live Stream"></div>
     <div class="controls">
-        <div class="control-group">
-            <button id="toggleExtract" class="btn-off" onclick="toggleExtraction()">Extraction: OFF</button>
-        </div>
-        <div class="control-group">
-            <label>Extraction Rate: <span id="rateVal">100</span>%</label>
-            <input type="range" id="rateInput" min="1" max="100" value="100" onchange="updateConfig()">
-        </div>
-        <div class="control-group">
-            <label>Max Samples (Cap)</label>
-            <input type="number" id="maxInput" value="500" onchange="updateConfig()">
-        </div>
-        <div class="stats">
-            <div class="stat-row"><span>Samples Collected:</span> <strong id="currentSamples" style="color:#00ffcc">0</strong></div>
-        </div>
+        <div class="control-group"><button id="toggleExtract" class="btn-off" onclick="toggleExtraction()">Extraction: OFF</button></div>
+        <div class="control-group"><label>Extraction Rate: <span id="rateVal">100</span>%</label><input type="range" id="rateInput" min="1" max="100" value="100" onchange="updateConfig()"></div>
+        <div class="control-group"><label>Max Samples (Cap)</label><input type="number" id="maxInput" value="500" onchange="updateConfig()"></div>
+        <div class="stats"><div class="stat-row"><span>Samples Collected:</span> <strong id="currentSamples" style="color:#00ffcc">0</strong></div></div>
     </div>
 </div>
+
+<div class="log-panel">
+    <h3>Live Event Log</h3>
+    <div class="table-container">
+        <table class="log-table">
+            <thead>
+                <tr>
+                    <th>Time</th>
+                    <th>Track ID</th>
+                    <th>Primary Attribute</th>
+                    <th>Entrance</th>
+                    <th>Exit</th>
+                    <th>Duration</th>
+                </tr>
+            </thead>
+            <tbody id="logBody">
+                <!-- JS Populated -->
+            </tbody>
+        </table>
+    </div>
+</div>
+
 <script>
     let isExtracting = false;
-    function fetchConfig() {
+    function fetchState() {
         fetch('/api/config').then(r => r.json()).then(data => {
             isExtracting = data.extract_enabled;
             document.getElementById('rateInput').value = data.extraction_rate;
@@ -187,24 +215,31 @@ HTML_TEMPLATE = """
             btn.className = isExtracting ? 'btn-on' : 'btn-off';
             btn.innerText = isExtracting ? 'Extraction: ACTIVE' : 'Extraction: OFF';
         });
+        
+        fetch('/api/logs').then(r => r.json()).then(data => {
+            document.getElementById('logBody').innerHTML = data.map(log => `
+                <tr>
+                    <td>${log.timestamp}</td>
+                    <td><span class="badge">#${log.id}</span></td>
+                    <td>${log.inference}</td>
+                    <td>${log.entrance}</td>
+                    <td>${log.exit}</td>
+                    <td>${log.duration}</td>
+                </tr>
+            `).join('');
+        });
     }
+    
     function updateConfig() {
         fetch('/api/config', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({
-                extract_enabled: isExtracting, 
-                extraction_rate: document.getElementById('rateInput').value,
-                max_samples: document.getElementById('maxInput').value
-            })
-        }).then(fetchConfig);
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ extract_enabled: isExtracting, extraction_rate: document.getElementById('rateInput').value, max_samples: document.getElementById('maxInput').value })
+        }).then(fetchState);
     }
-    function toggleExtraction() { 
-        isExtracting = !isExtracting; 
-        updateConfig(); 
-    }
-    setInterval(fetchConfig, 2000);
-    fetchConfig();
+    
+    function toggleExtraction() { isExtracting = !isExtracting; updateConfig(); }
+    setInterval(fetchState, 2000);
+    fetchState();
 </script>
 </body></html>
 """
@@ -217,17 +252,13 @@ REVIEW_HTML_TEMPLATE = """
     .images-panel { flex: 2; background: #1e1e1e; padding: 20px; border-radius: 12px; border: 1px solid #333; text-align: center; }
     .image-row { display: flex; justify-content: center; gap: 10px; margin-top: 15px; }
     .image-row img { max-height: 400px; border-radius: 8px; border: 2px solid #444; }
-    
     .editor-panel { flex: 1; background: #1e1e1e; padding: 20px; border-radius: 12px; border: 1px solid #333; min-width: 300px; }
     h3 { margin-top: 0; color: #fff; border-bottom: 1px solid #444; padding-bottom: 10px; }
-    
     .hints { background: #2a2a2a; padding: 15px; border-radius: 8px; margin-bottom: 20px; font-size: 0.9em; }
     .hints span { color: #00ffcc; font-weight: bold; }
-    
     .checkbox-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px; max-height: 400px; overflow-y: auto; }
     .checkbox-grid label { display: flex; align-items: center; cursor: pointer; color: #ccc; }
     .checkbox-grid input { margin-right: 8px; width: 16px; height: 16px; }
-    
     .actions { display: flex; gap: 10px; }
     button { flex: 1; padding: 12px; font-size: 1.1em; font-weight: bold; border: none; border-radius: 6px; cursor: pointer; transition: 0.3s; }
     .btn-save { background: #00ffcc; color: #000; }
@@ -351,6 +382,10 @@ def api_config():
         if 'max_samples' in data: engine_config['max_samples'] = int(data['max_samples'])
         if 'extraction_rate' in data: engine_config['extraction_rate'] = int(data['extraction_rate'])
     return jsonify(engine_config)
+
+@app.route('/api/logs', methods=['GET'])
+def api_logs():
+    return jsonify(event_logs)
 
 @app.route('/api/review/next', methods=['GET'])
 def api_review_next():

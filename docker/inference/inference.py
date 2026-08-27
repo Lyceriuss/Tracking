@@ -79,7 +79,14 @@ class PedestrianState:
         self.is_collecting = True
         self.active_view = None
         self.view_history = deque(maxlen=3 * fps)
-        self.best_crops = {}  # Extractor Storage
+        self.best_crops = {}  
+        
+        
+        # --- NEW LOGGING VARIABLES ---
+        self.entry_time = time.time()
+        self.last_seen_time = time.time()  # Add this!
+        self.entry_point = None
+        self.last_point = None
 
     def update(self, q_score, probs, schema_keys, crop_bgr):
         views = ["Front", "Back", "Side"]
@@ -176,6 +183,15 @@ def run_inference_engine(args):
                         track_id = int(track_id)
                         current_ids_in_frame.add(track_id)
                         x1, y1, x2, y2 = map(int, box)
+                        
+                        # --- RECORD TRUE ENTRANCE/EXIT HERE ---
+                        cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
+                        if track_states[track_id].entry_point is None:
+                            track_states[track_id].entry_point = (cx, cy)
+                        track_states[track_id].last_point = (cx, cy)
+                        track_states[track_id].last_seen_time = time.time()
+                        # --------------------------------------
+
                         x1, y1 = max(0, x1), max(0, y1)
                         x2, y2 = min(frame.shape[1], x2), min(frame.shape[0], y2)
                         
@@ -191,6 +207,15 @@ def run_inference_engine(args):
                 
                 for meta, probs in zip(batch_metadata, batch_probs):
                     t_id, bbox, q_score, ped_crop = meta
+                    
+                    # --- NEW RECORD COORDINATES ---
+                    cx, cy = (bbox[0] + bbox[2]) // 2, (bbox[1] + bbox[3]) // 2
+                    if track_states[t_id].entry_point is None:
+                        track_states[t_id].entry_point = (cx, cy)
+                    track_states[t_id].last_point = (cx, cy)
+                    track_states[t_id].last_seen_time = time.time() # Add this!
+                    
+                    
                     display_attrs, buf_count = track_states[t_id].update(q_score, probs, data_manager.SCHEMA_KEYS, ped_crop)
                     draw_pedestrian_data(frame, t_id, bbox, display_attrs, buf_count, 10)
 
@@ -199,14 +224,49 @@ def run_inference_engine(args):
             for stale_id in stale_ids:
                 missing_tracks[stale_id] += 1
                 if missing_tracks[stale_id] > 30:
+                    
+                    # --- 1. PUSH EVENT LOG ---
+                    state = track_states[stale_id]
+                    duration = round(state.last_seen_time - state.entry_time, 1)
+                    ent = state.entry_point or (0,0)
+                    ext = state.last_point or (0,0)
+                    
+                    # Edge Proximity Logic (Which border is closest?)
+                    def get_zone(x, y, frame_w, frame_h):
+                        distances = {
+                            "Left": x,
+                            "Right": frame_w - x,
+                            "Top": y,
+                            "Bottom": frame_h - y
+                        }
+                        # Return the name of the edge with the shortest distance
+                        return min(distances, key=distances.get)
+                            
+                    # Get dynamic resolution from the current frame
+                    frame_h, frame_w = frame.shape[:2]
+                    
+                    primary = state.locked_attrs[1] if state.locked_attrs and len(state.locked_attrs) > 1 else "Pedestrian"
+                    
+                    data_manager.add_log_event({
+                        "timestamp": time.strftime("%H:%M:%S"),
+                        "id": stale_id,
+                        "inference": primary,
+                        "entrance": f"{get_zone(ent[0], ent[1], frame_w, frame_h)} {ent}",
+                        "exit": f"{get_zone(ext[0], ext[1], frame_w, frame_h)} {ext}",
+                        "duration": f"{duration}s"
+                    })
+                    
+                    # --- 2. EXTRACTION GATEWAY ---
                     cfg = data_manager.engine_config
                     if cfg["extract_enabled"] and cfg["current_samples"] < cfg["max_samples"]:
                         if np.random.randint(1, 101) <= cfg["extraction_rate"]:
                             if data_manager.export_track_data(stale_id, track_states[stale_id]):
                                 cfg["current_samples"] += 1
                                 
+                    # --- 3. CLEANUP MEMORY ---
                     del track_states[stale_id]
                     del missing_tracks[stale_id]
+                    
             for active_id in current_ids_in_frame: missing_tracks.pop(active_id, None)
 
             # Blast to Web Server
