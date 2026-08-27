@@ -14,9 +14,10 @@ services:
       dockerfile: dockerfile
     container_name: par_inference_node
     restart: unless-stopped
-    runtime: nvidia
     ports:
       - "5000:5000"
+    volumes:
+      - ./exports:/app/exports
     environment:
       - STREAM_SOURCE=rtsp://streamer_1:8554/live/stream
       - MODEL_PATH=/app/baseline_v4_prod.onnx

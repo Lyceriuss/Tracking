@@ -1,9 +1,5 @@
 numpy==2.1.0
-nvidia-cudnn-cu12
-nvidia-cuda-runtime-cu12
-nvidia-cublas-cu12
-nvidia-curand-cu12
-onnxruntime-gpu==1.23.2
+onnxruntime==1.19.0
 opencv-python-headless==5.0.0.93
 flask
 supervision
