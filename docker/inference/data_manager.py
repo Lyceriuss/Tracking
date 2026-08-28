@@ -246,7 +246,7 @@ HTML_TEMPLATE = """
             document.getElementById('logBody').innerHTML = data.map(log => `
                 <tr>
                     <td>${log.timestamp}</td>
-                    <td><span class="badge">#${log.id}</span></td>
+                    <td><span class="badge">${log.id}</span></td>
                     <td>${log.inference}</td>
                     <td>${log.entrance}</td>
                     <td>${log.exit}</td>
@@ -291,8 +291,8 @@ REVIEW_HTML_TEMPLATE = """
     /* NEW TAGGING STYLES */
     .tag-section { background: #2a2a2a; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #444; }
     .tag-inputs { display: flex; gap: 10px; margin-top: 10px; }
-    .tag-inputs input[type="text"], .tag-inputs input[type="number"] { background: #1e1e1e; border: 1px solid #444; color: #fff; padding: 10px; border-radius: 4px; box-sizing: border-box; }
-    .tag-inputs input[type="number"] { width: 70px; text-align: center; background: #333; cursor: not-allowed; }
+    .tag-inputs input[type="text"] { background: #1e1e1e; border: 1px solid #444; color: #fff; padding: 10px; border-radius: 4px; box-sizing: border-box; }
+    #tag-id { width: 120px; text-align: center; background: #333; cursor: not-allowed; }
     
     .checkbox-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px; max-height: 400px; overflow-y: auto; }
     .checkbox-grid label { display: flex; align-items: center; cursor: pointer; color: #ccc; }
@@ -353,7 +353,7 @@ REVIEW_HTML_TEMPLATE = """
                     <h3 style="margin:0; border:none; padding:0; color:#00ffcc; font-size:1.1em;">Tag Identity</h3>
                     <label style="margin-top:5px;">Assign a custom name to this person across all cameras.</label>
                     <div class="tag-inputs">
-                        <input type="number" id="tag-id" value="${currentData.track_id}" title="Global ID (Locked)" readonly>
+                        <input type="text" id="tag-id" value="${currentData.track_id}" title="Global ID (Locked)" readonly>
                         <input type="text" id="tag-label" placeholder="e.g. John (IT)">
                         <button class="btn-save" style="padding: 10px;" onclick="tagIdentity()">Tag Person</button>
                     </div>
@@ -372,9 +372,18 @@ REVIEW_HTML_TEMPLATE = """
     }
 
     function tagIdentity() {
-        const id = document.getElementById("tag-id").value;
+        const rawId = document.getElementById("tag-id").value;
         const label = document.getElementById("tag-label").value;
         
+        // Extract purely the numerical ID from strings like "G-8" or "Minerva (#3)"
+        const match = String(rawId).match(/\d+/);
+        const id = match ? match[0] : null;
+        
+        if(!id) {
+            alert("Could not extract a numerical ID from: " + rawId);
+            return;
+        }
+
         if(!label) {
             alert("Please enter a custom name before saving.");
             return;

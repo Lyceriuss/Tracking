@@ -265,14 +265,15 @@ def run_inference_engine(args):
                             }
                             next_global_id += 1
                     
-                    # --- NEW: UI Display check for VIP labels ---
+                    # --- NEW: Resolve Custom Tags for Live Stream Display ---
                     if t_id in track_to_global:
                         g_id = track_to_global[t_id]
-                        custom_label = reid_gallery[g_id].get("label")
+                        # Check if this Global ID has been tagged with a custom name
+                        custom_label = reid_gallery.get(g_id, {}).get("label")
                         display_id = custom_label if custom_label else f"G-{g_id}"
                     else:
                         display_id = f"Scan-{t_id}"
-                        
+                    
                     draw_pedestrian_data(frame, display_id, bbox, display_attrs, buf_count, 10)
 
             stale_ids = set(track_states.keys()) - current_ids_in_frame
@@ -290,7 +291,24 @@ def run_inference_engine(args):
                     frame_h, frame_w = frame.shape[:2]
                     primary = state.locked_attrs[1] if state.locked_attrs and len(state.locked_attrs) > 1 else "Pedestrian"
                     
-                    final_log_id = track_to_global.get(stale_id, f"Unregistered-{stale_id}")
+                    # --- NEW: Format the Log ID to include Custom Tags ---
+                    if stale_id in track_to_global:
+                        g_id = track_to_global[stale_id]
+                        
+                        # Quick hot-reload check right before we log them
+                        if os.path.exists(GALLERY_PATH):
+                            try:
+                                with open(GALLERY_PATH, "rb") as f:
+                                    disk_gallery = pickle.load(f)
+                                    if g_id in disk_gallery and disk_gallery[g_id].get("label"):
+                                        reid_gallery[g_id]["label"] = disk_gallery[g_id]["label"]
+                            except: pass
+                            
+                        custom_label = reid_gallery.get(g_id, {}).get("label")
+                        final_log_id = f"{custom_label} (#{g_id})" if custom_label else f"G-{g_id}"
+                    else:
+                        final_log_id = f"Unregistered-{stale_id}"
+                    # -----------------------------------------------------
                     
                     data_manager.add_log_event({
                         "timestamp": time.strftime("%H:%M:%S"),
