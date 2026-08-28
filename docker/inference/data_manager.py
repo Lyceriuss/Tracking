@@ -1,5 +1,6 @@
 import os
 import sys
+import pickle
 import json
 import cv2
 import numpy as np
@@ -29,6 +30,7 @@ engine_config = {
     "extract_enabled": False,
     "max_samples": 500,
     "extraction_rate": 100,
+    "retention_hours": 168, # Default to 7 days
     "current_samples": len(glob.glob(os.path.join(EXPORT_DIR, "track_*")))
 }
 
@@ -151,7 +153,7 @@ HTML_TEMPLATE = """
     .controls { flex: 1; background: #1e1e1e; padding: 20px; border-radius: 12px; border: 1px solid #333; min-width: 300px; }
     .control-group { margin-bottom: 20px; }
     label { display: block; margin-bottom: 8px; color: #aaa; font-size: 0.9em; }
-    input[type="number"], input[type="range"] { width: 100%; background: #2a2a2a; border: 1px solid #444; color: #fff; padding: 8px; border-radius: 4px; box-sizing: border-box;}
+    input[type="number"], input[type="range"], select { width: 100%; background: #2a2a2a; border: 1px solid #444; color: #fff; padding: 8px; border-radius: 4px; box-sizing: border-box;}
     button { width: 100%; padding: 12px; font-size: 1.1em; font-weight: bold; border: none; border-radius: 6px; cursor: pointer; transition: 0.3s; }
     .btn-off { background: #ff4444; color: white; }
     .btn-on { background: #00ffcc; color: #000; }
@@ -177,6 +179,18 @@ HTML_TEMPLATE = """
         <div class="control-group"><button id="toggleExtract" class="btn-off" onclick="toggleExtraction()">Extraction: OFF</button></div>
         <div class="control-group"><label>Extraction Rate: <span id="rateVal">100</span>%</label><input type="range" id="rateInput" min="1" max="100" value="100" onchange="updateConfig()"></div>
         <div class="control-group"><label>Max Samples (Cap)</label><input type="number" id="maxInput" value="500" onchange="updateConfig()"></div>
+        
+        <!-- NEW MEMORY RETENTION DROPDOWN -->
+        <div class="control-group">
+            <label>Memory Retention (ReID):</label>
+            <select id="retentionSelect" onchange="updateConfig()">
+                <option value="12">12 Hours</option>
+                <option value="168">7 Days</option>
+                <option value="720">30 Days</option>
+                <option value="0">Forever (No Purge)</option>
+            </select>
+        </div>
+        
         <div class="stats"><div class="stat-row"><span>Samples Collected:</span> <strong id="currentSamples" style="color:#00ffcc">0</strong></div></div>
     </div>
 </div>
@@ -207,10 +221,22 @@ HTML_TEMPLATE = """
     function fetchState() {
         fetch('/api/config').then(r => r.json()).then(data => {
             isExtracting = data.extract_enabled;
-            document.getElementById('rateInput').value = data.extraction_rate;
+            
+            // Only update input fields if the user IS NOT currently clicking/typing in them
+            if (document.activeElement.id !== 'rateInput') {
+                document.getElementById('rateInput').value = data.extraction_rate;
+            }
+            if (document.activeElement.id !== 'maxInput') {
+                document.getElementById('maxInput').value = data.max_samples;
+            }
+            if (document.activeElement.id !== 'retentionSelect' && data.retention_hours !== undefined) {
+                document.getElementById('retentionSelect').value = data.retention_hours;
+            }
+            
+            // Always update display text
             document.getElementById('rateVal').innerText = data.extraction_rate;
-            document.getElementById('maxInput').value = data.max_samples;
             document.getElementById('currentSamples').innerText = data.current_samples;
+            
             const btn = document.getElementById('toggleExtract');
             btn.className = isExtracting ? 'btn-on' : 'btn-off';
             btn.innerText = isExtracting ? 'Extraction: ACTIVE' : 'Extraction: OFF';
@@ -233,7 +259,12 @@ HTML_TEMPLATE = """
     function updateConfig() {
         fetch('/api/config', {
             method: 'POST', headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ extract_enabled: isExtracting, extraction_rate: document.getElementById('rateInput').value, max_samples: document.getElementById('maxInput').value })
+            body: JSON.stringify({ 
+                extract_enabled: isExtracting, 
+                extraction_rate: document.getElementById('rateInput').value, 
+                max_samples: document.getElementById('maxInput').value,
+                retention_hours: document.getElementById('retentionSelect').value
+            })
         }).then(fetchState);
     }
     
@@ -256,6 +287,13 @@ REVIEW_HTML_TEMPLATE = """
     h3 { margin-top: 0; color: #fff; border-bottom: 1px solid #444; padding-bottom: 10px; }
     .hints { background: #2a2a2a; padding: 15px; border-radius: 8px; margin-bottom: 20px; font-size: 0.9em; }
     .hints span { color: #00ffcc; font-weight: bold; }
+    
+    /* NEW TAGGING STYLES */
+    .tag-section { background: #2a2a2a; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #444; }
+    .tag-inputs { display: flex; gap: 10px; margin-top: 10px; }
+    .tag-inputs input[type="text"], .tag-inputs input[type="number"] { background: #1e1e1e; border: 1px solid #444; color: #fff; padding: 10px; border-radius: 4px; box-sizing: border-box; }
+    .tag-inputs input[type="number"] { width: 70px; text-align: center; background: #333; cursor: not-allowed; }
+    
     .checkbox-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px; max-height: 400px; overflow-y: auto; }
     .checkbox-grid label { display: flex; align-items: center; cursor: pointer; color: #ccc; }
     .checkbox-grid input { margin-right: 8px; width: 16px; height: 16px; }
@@ -310,6 +348,17 @@ REVIEW_HTML_TEMPLATE = """
                 <div class="image-row">${imagesHtml}</div>
             </div>
             <div class="editor-panel">
+                <!-- NEW TAGGING UI -->
+                <div class="tag-section">
+                    <h3 style="margin:0; border:none; padding:0; color:#00ffcc; font-size:1.1em;">Tag Identity</h3>
+                    <label style="margin-top:5px;">Assign a custom name to this person across all cameras.</label>
+                    <div class="tag-inputs">
+                        <input type="number" id="tag-id" value="${currentData.track_id}" title="Global ID (Locked)" readonly>
+                        <input type="text" id="tag-label" placeholder="e.g. John (IT)">
+                        <button class="btn-save" style="padding: 10px;" onclick="tagIdentity()">Tag Person</button>
+                    </div>
+                </div>
+                
                 <h3>Top 3 Confidences</h3>
                 <div class="hints">${hintsHtml}</div>
                 <h3>Adjust Labels</h3>
@@ -320,6 +369,27 @@ REVIEW_HTML_TEMPLATE = """
                 </div>
             </div>
         `;
+    }
+
+    function tagIdentity() {
+        const id = document.getElementById("tag-id").value;
+        const label = document.getElementById("tag-label").value;
+        
+        if(!label) {
+            alert("Please enter a custom name before saving.");
+            return;
+        }
+        
+        fetch('/api/tag', {
+            method: 'POST', 
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ id: id, label: label })
+        })
+        .then(r => r.json())
+        .then(data => {
+            alert(data.message);
+            document.getElementById("tag-label").value = ""; // Clear input after tagging
+        });
     }
 
     function saveSample() {
@@ -374,14 +444,38 @@ def generate_web_stream():
 @app.route('/video_feed')
 def video_feed(): return Response(generate_web_stream(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
-@app.route('/api/config', methods=['GET', 'POST'])
-def api_config():
+@app.route('/api/config', methods=['POST', 'GET'])
+def config_route():
     if request.method == 'POST':
         data = request.json
-        if 'extract_enabled' in data: engine_config['extract_enabled'] = data['extract_enabled']
-        if 'max_samples' in data: engine_config['max_samples'] = int(data['max_samples'])
+        # Strictly cast all incoming web data to correct Python types
+        if 'extract_enabled' in data: engine_config['extract_enabled'] = bool(data['extract_enabled'])
         if 'extraction_rate' in data: engine_config['extraction_rate'] = int(data['extraction_rate'])
+        if 'max_samples' in data: engine_config['max_samples'] = int(data['max_samples'])
+        if 'retention_hours' in data: engine_config['retention_hours'] = int(data['retention_hours'])
+    
+    # Always send back current config
+    engine_config['current_samples'] = len(glob.glob(os.path.join(EXPORT_DIR, "track_*")))
     return jsonify(engine_config)
+
+@app.route('/api/tag', methods=['POST'])
+def tag_identity():
+    data = request.json
+    global_id = int(data.get('id'))
+    label = data.get('label')
+    
+    gallery_path = "exports/reid_gallery.pkl"
+    if os.path.exists(gallery_path):
+        with open(gallery_path, "rb") as f:
+            gallery = pickle.load(f)
+        
+        if global_id in gallery:
+            gallery[global_id]['label'] = label
+            with open(gallery_path, "wb") as f:
+                pickle.dump(gallery, f)
+            return jsonify({"status": "success", "message": f"Successfully tagged ID G-{global_id} as '{label}'"})
+        
+    return jsonify({"status": "error", "message": "ID not found in memory vault."}), 404
 
 @app.route('/api/logs', methods=['GET'])
 def api_logs():
