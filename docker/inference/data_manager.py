@@ -170,15 +170,22 @@ HTML_TEMPLATE = """
     .badge { background: #333; color: #00ffcc; padding: 3px 8px; border-radius: 4px; font-weight: bold; font-size: 0.9em; }
 </style></head><body>
 <header>
-    <h1>PAR AI STUDIO</h1>
+    <h1>Control hub</h1>
     <nav><a href="/" class="active">Live Engine</a><a href="/review">Data Review</a></nav>
 </header>
 <div class="layout">
     <div class="video-container"><img src="/video_feed" alt="Live Stream"></div>
     <div class="controls">
-        <div class="control-group"><button id="toggleExtract" class="btn-off" onclick="toggleExtraction()">Extraction: OFF</button></div>
+        <div class="control-group">
+            <button id="toggleExtract" class="btn-off" onclick="toggleExtraction()">Extraction: OFF</button>
+        </div>
+        <div class="control-group" style="display: flex; gap: 10px;">
+            <button id="toggleRecord" class="btn-off" onclick="toggleRecording()">Recording: OFF</button>
+            <button id="toggleSleep" class="btn-off" onclick="toggleSleepMode()">Sleep Mode: OFF</button>
+        </div>
         <div class="control-group"><label>Extraction Rate: <span id="rateVal">100</span>%</label><input type="range" id="rateInput" min="1" max="100" value="100" onchange="updateConfig()"></div>
         <div class="control-group"><label>Max Samples (Cap)</label><input type="number" id="maxInput" value="500" onchange="updateConfig()"></div>
+        
         
         <!-- NEW MEMORY RETENTION DROPDOWN -->
         <div class="control-group">
@@ -221,38 +228,29 @@ HTML_TEMPLATE = """
     function fetchState() {
         fetch('/api/config').then(r => r.json()).then(data => {
             isExtracting = data.extract_enabled;
+            isRecording = data.record_events;
+            isSleepMode = data.sleep_mode;
             
-            // Only update input fields if the user IS NOT currently clicking/typing in them
-            if (document.activeElement.id !== 'rateInput') {
-                document.getElementById('rateInput').value = data.extraction_rate;
-            }
-            if (document.activeElement.id !== 'maxInput') {
-                document.getElementById('maxInput').value = data.max_samples;
-            }
+            if (document.activeElement.id !== 'rateInput') document.getElementById('rateInput').value = data.extraction_rate;
+            if (document.activeElement.id !== 'maxInput') document.getElementById('maxInput').value = data.max_samples;
             if (document.activeElement.id !== 'retentionSelect' && data.retention_hours !== undefined) {
                 document.getElementById('retentionSelect').value = data.retention_hours;
             }
             
-            // Always update display text
             document.getElementById('rateVal').innerText = data.extraction_rate;
             document.getElementById('currentSamples').innerText = data.current_samples;
             
-            const btn = document.getElementById('toggleExtract');
-            btn.className = isExtracting ? 'btn-on' : 'btn-off';
-            btn.innerText = isExtracting ? 'Extraction: ACTIVE' : 'Extraction: OFF';
-        });
-        
-        fetch('/api/logs').then(r => r.json()).then(data => {
-            document.getElementById('logBody').innerHTML = data.map(log => `
-                <tr>
-                    <td>${log.timestamp}</td>
-                    <td><span class="badge">${log.id}</span></td>
-                    <td>${log.inference}</td>
-                    <td>${log.entrance}</td>
-                    <td>${log.exit}</td>
-                    <td>${log.duration}</td>
-                </tr>
-            `).join('');
+            const extBtn = document.getElementById('toggleExtract');
+            extBtn.className = isExtracting ? 'btn-on' : 'btn-off';
+            extBtn.innerText = isExtracting ? 'Extraction: ACTIVE' : 'Extraction: OFF';
+
+            const recBtn = document.getElementById('toggleRecord');
+            recBtn.className = isRecording ? 'btn-on' : 'btn-off';
+            recBtn.innerText = isRecording ? 'Recording: REC' : 'Recording: OFF';
+
+            const slpBtn = document.getElementById('toggleSleep');
+            slpBtn.className = isSleepMode ? 'btn-on' : 'btn-off';
+            slpBtn.innerText = isSleepMode ? 'Sleep Mode: ON' : 'Sleep Mode: OFF';
         });
     }
     
@@ -261,6 +259,8 @@ HTML_TEMPLATE = """
             method: 'POST', headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({ 
                 extract_enabled: isExtracting, 
+                record_events: isRecording,
+                sleep_mode: isSleepMode,
                 extraction_rate: document.getElementById('rateInput').value, 
                 max_samples: document.getElementById('maxInput').value,
                 retention_hours: document.getElementById('retentionSelect').value
@@ -269,6 +269,8 @@ HTML_TEMPLATE = """
     }
     
     function toggleExtraction() { isExtracting = !isExtracting; updateConfig(); }
+    function toggleRecording() { isRecording = !isRecording; updateConfig(); }
+    function toggleSleepMode() { isSleepMode = !isSleepMode; updateConfig(); }
     setInterval(fetchState, 2000);
     fetchState();
 </script>
@@ -306,7 +308,7 @@ REVIEW_HTML_TEMPLATE = """
     .empty-state { padding: 50px; text-align: center; color: #888; font-size: 1.2em; width: 100%; }
 </style></head><body>
 <header>
-    <h1>PAR AI STUDIO</h1>
+    <h1>Tracking -Besten-Yolo-REID</h1>
     <nav><a href="/">Live Engine</a><a href="/review" class="active">Data Review</a></nav>
 </header>
 <div id="app" class="layout">
@@ -346,23 +348,26 @@ REVIEW_HTML_TEMPLATE = """
             <div class="images-panel">
                 <h3>Folder: ${currentData.folder_name}</h3>
                 <div class="image-row">${imagesHtml}</div>
-            </div>
-            <div class="editor-panel">
-                <!-- NEW TAGGING UI -->
-                <div class="tag-section">
+                
+                <!-- MOVED TAGGING UI HERE -->
+                <div class="tag-section" style="margin-top: 30px; text-align: left;">
                     <h3 style="margin:0; border:none; padding:0; color:#00ffcc; font-size:1.1em;">Tag Identity</h3>
                     <label style="margin-top:5px;">Assign a custom name to this person across all cameras.</label>
                     <div class="tag-inputs">
                         <input type="text" id="tag-id" value="${currentData.track_id}" title="Global ID (Locked)" readonly>
                         <input type="text" id="tag-label" placeholder="e.g. John (IT)">
-                        <button class="btn-save" style="padding: 10px;" onclick="tagIdentity()">Tag Person</button>
+                        <button class="btn-save" style="padding: 10px; max-width: 200px;" onclick="tagIdentity()">Tag Person</button>
                     </div>
                 </div>
-                
+            </div>
+            
+            <div class="editor-panel">
                 <h3>Top 3 Confidences</h3>
                 <div class="hints">${hintsHtml}</div>
+                
                 <h3>Adjust Labels</h3>
                 <div class="checkbox-grid">${checkboxesHtml}</div>
+                
                 <div class="actions">
                     <button class="btn-del" onclick="deleteSample()">Trash (Del)</button>
                     <button class="btn-save" onclick="saveSample()">Approve & Next (Enter)</button>
@@ -454,7 +459,10 @@ def generate_web_stream():
 def video_feed(): return Response(generate_web_stream(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 @app.route('/api/config', methods=['POST', 'GET'])
+@app.route('/api/config', methods=['POST', 'GET'])
 def config_route():
+    global engine_config  
+    
     if request.method == 'POST':
         data = request.json
         # Strictly cast all incoming web data to correct Python types
@@ -462,9 +470,24 @@ def config_route():
         if 'extraction_rate' in data: engine_config['extraction_rate'] = int(data['extraction_rate'])
         if 'max_samples' in data: engine_config['max_samples'] = int(data['max_samples'])
         if 'retention_hours' in data: engine_config['retention_hours'] = int(data['retention_hours'])
+        if 'record_events' in data: engine_config['record_events'] = bool(data['record_events'])
+        if 'sleep_mode' in data: engine_config['sleep_mode'] = bool(data['sleep_mode'])
+    
+    # Always send back current config (only updating the dynamic sample count)
+    engine_config["current_samples"] = len(glob.glob(os.path.join(EXPORT_DIR, "track_*")))
+    
+    return jsonify(engine_config)
     
     # Always send back current config
-    engine_config['current_samples'] = len(glob.glob(os.path.join(EXPORT_DIR, "track_*")))
+    engine_config = {
+    "extract_enabled": False,
+    "record_events": False, # New toggle
+    "sleep_mode": False,    # New toggle
+    "max_samples": 500,
+    "extraction_rate": 100,
+    "retention_hours": 168,
+    "current_samples": len(glob.glob(os.path.join(EXPORT_DIR, "track_*")))
+}
     return jsonify(engine_config)
 
 @app.route('/api/tag', methods=['POST'])
