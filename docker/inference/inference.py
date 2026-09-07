@@ -11,6 +11,9 @@ import pickle
 import supervision as sv
 from collections import defaultdict, deque
 
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import data_manager
 
 logging.basicConfig(
@@ -25,9 +28,9 @@ os.makedirs("exports", exist_ok=True)
 def parse_args():
     parser = argparse.ArgumentParser(description="Pure ONNX Inference Engine")
     parser.add_argument("--source", type=str, default=os.environ.get("STREAM_SOURCE", "rtsp://streamer_1:8554/live/stream"))
-    parser.add_argument("--par-model", type=str, default=os.environ.get("MODEL_PATH", "baseline_v4_prod.onnx"))
-    parser.add_argument("--yolo-model", type=str, default="yolo11n.onnx")
-    parser.add_argument("--reid-model", type=str, default=os.environ.get("REID_MODEL_PATH", "osnet_x0_25_msmt17.onnx"))
+    parser.add_argument("--par-model", type=str, default=os.environ.get("MODEL_PATH", "inference/models/baseline_v4_prod.onnx"))
+    parser.add_argument("--yolo-model", type=str, default="inference/models/yolo11n.onnx")
+    parser.add_argument("--reid-model", type=str, default=os.environ.get("REID_MODEL_PATH", "inference/models/osnet_x0_25_msmt17.onnx"))
     parser.add_argument("--port", type=int, default=5000)
     return parser.parse_args()
 

@@ -10,8 +10,8 @@ from torchvision import transforms as T
 from tqdm import tqdm
 import numpy as np
 
-from baseline_model import BestenSingle
-from dataset import UnifiedPedestrianDataset
+from training.baseline_model import BestenSingle
+from training.dataset import UnifiedPedestrianDataset
 from utils import MaskedBCEWithLogitsLoss, calculate_masked_metrics, rand_bbox
 
 

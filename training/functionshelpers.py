@@ -8,7 +8,7 @@ import time
 from collections import defaultdict, deque
 
 # 1. Import your custom baseline architecture
-from baseline_model import BestenSingle
+from training.baseline_model import BestenSingle
 
 # --- CONFIGURATION & SCHEMA ---
 SCHEMA_KEYS = [

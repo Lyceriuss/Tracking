@@ -9,9 +9,9 @@ services:
       - "8554:8554"
 
   inference:
-    build: 
-      context: ./inference
-      dockerfile: dockerfile
+    build:
+      context: .
+      dockerfile: inference/dockerfile
     container_name: par_inference_node
     restart: unless-stopped
     ports:
@@ -20,8 +20,7 @@ services:
       - ./exports:/app/exports
     environment:
       - STREAM_SOURCE=rtsp://streamer_1:8554/live/stream
-      - MODEL_PATH=/app/baseline_v4_prod.onnx
-      - FLASK_PORT=5000
-      - TZ=Europe/Stockholm   
+      - MODEL_PATH=/app/inference/models/baseline_v4_prod.onnx  
+      - TZ=Europe/Stockholm
     depends_on:
       - streamer_1

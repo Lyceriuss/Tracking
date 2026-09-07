@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>PAR Control Center</title>
+    <style>
+        /* COMMON CSS */
+        body { font-family: 'Segoe UI', sans-serif; background-color: #121212; color: #e0e0e0; margin: 0; display: flex; flex-direction: column; align-items: center;}
+        header { width: 100%; background-color: #1e1e1e; padding: 15px 20px; border-bottom: 2px solid #00ffcc; text-align: center; box-sizing: border-box; }
+        h1 { margin: 0 0 10px 0; color: #00ffcc; letter-spacing: 1.5px; font-size: 1.5em; }
+        nav a { color: #aaa; text-decoration: none; font-weight: bold; margin: 0 15px; padding: 5px 10px; border-radius: 4px; transition: 0.3s; }
+        nav a:hover, nav a.active { background: #333; color: #00ffcc; }
+
+        /* PAGE SPECIFIC CSS */
+        .layout { display: flex; max-width: 1400px; width: 100%; gap: 20px; margin-top: 20px; padding: 0 20px; box-sizing: border-box; }
+        .video-container { flex: 2; border: 4px solid #333; border-radius: 12px; overflow: hidden; background: #000; min-width: 640px; }
+        .video-container img { width: 100%; height: auto; display: block; }
+        .controls { flex: 1; background: #1e1e1e; padding: 20px; border-radius: 12px; border: 1px solid #333; min-width: 300px; }
+        .control-group { margin-bottom: 20px; }
+        label { display: block; margin-bottom: 8px; color: #aaa; font-size: 0.9em; }
+        input[type="number"], input[type="range"], select { width: 100%; background: #2a2a2a; border: 1px solid #444; color: #fff; padding: 8px; border-radius: 4px; box-sizing: border-box;}
+        button { width: 100%; padding: 12px; font-size: 1.1em; font-weight: bold; border: none; border-radius: 6px; cursor: pointer; transition: 0.3s; }
+        .btn-off { background: #ff4444; color: white; }
+        .btn-on { background: #00ffcc; color: #000; }
+        .stats { margin-top: 30px; padding-top: 20px; border-top: 1px solid #333; }
+        .stat-row { display: flex; justify-content: space-between; margin-bottom: 10px; font-size: 1.1em; }
+        
+        .log-panel { max-width: 1400px; width: 100%; margin: 20px auto; background: #1e1e1e; padding: 20px; border-radius: 12px; border: 1px solid #333; box-sizing: border-box; }
+        .log-panel h3 { margin: 0 0 15px 0; color: #00ffcc; font-size: 1.2em; border-bottom: 1px solid #333; padding-bottom: 10px; }
+        .table-container { max-height: 250px; overflow-y: auto; }
+        .log-table { width: 100%; text-align: left; border-collapse: collapse; font-size: 0.95em; }
+        .log-table th { padding: 10px; color: #888; border-bottom: 2px solid #333; position: sticky; top: 0; background: #1e1e1e; }
+        .log-table td { padding: 12px 10px; border-bottom: 1px solid #2a2a2a; color: #ccc; }
+        .log-table tr:hover td { background: #252525; }
+        .badge { background: #333; color: #00ffcc; padding: 3px 8px; border-radius: 4px; font-weight: bold; font-size: 0.9em; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>PAR AI STUDIO</h1>
+        <nav><a href="/" class="active">Live Engine</a><a href="/review">Data Review</a></nav>
+    </header>
+    <div class="layout">
+        <div class="video-container"><img src="/video_feed" alt="Live Stream"></div>
+        <div class="controls">
+            <div class="control-group">
+                <button id="toggleExtract" class="btn-off" onclick="toggleExtraction()">Extraction: OFF</button>
+            </div>
+            <div class="control-group" style="display: flex; gap: 10px;">
+                <button id="toggleRecord" class="btn-off" onclick="toggleRecording()">Recording: OFF</button>
+                <button id="toggleSleep" class="btn-off" onclick="toggleSleepMode()">Sleep Mode: OFF</button>
+            </div>
+            <div class="control-group">
+                <label>Extraction Rate: <span id="rateVal">100</span>%</label>
+                <input type="range" id="rateInput" min="1" max="100" value="100" onchange="updateConfig()">
+            </div>
+            <div class="control-group">
+                <label>Max Samples (Cap)</label>
+                <input type="number" id="maxInput" value="500" onchange="updateConfig()">
+            </div>
+            <div class="control-group">
+                <label>Memory Retention (ReID):</label>
+                <select id="retentionSelect" onchange="updateConfig()">
+                    <option value="12">12 Hours</option>
+                    <option value="168">7 Days</option>
+                    <option value="720">30 Days</option>
+                    <option value="0">Forever (No Purge)</option>
+                </select>
+            </div>
+            <div class="stats"><div class="stat-row"><span>Samples Collected:</span> <strong id="currentSamples" style="color:#00ffcc">0</strong></div></div>
+        </div>
+    </div>
+
+    <div class="log-panel">
+        <h3>Live Event Log</h3>
+        <div class="table-container">
+            <table class="log-table">
+                <thead>
+                    <tr>
+                        <th>Time</th><th>Track ID</th><th>Primary Attribute</th><th>Entrance</th><th>Exit</th><th>Duration</th>
+                    </tr>
+                </thead>
+                <tbody id="logBody">
+                    <!-- JS Populated -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        let isExtracting = false;
+        let isRecording = false;
+        let isSleepMode = false;
+        
+        function fetchState() {
+            fetch('/api/config').then(r => r.json()).then(data => {
+                isExtracting = data.extract_enabled;
+                isRecording = data.record_events;
+                isSleepMode = data.sleep_mode;
+                
+                if (document.activeElement.id !== 'rateInput') document.getElementById('rateInput').value = data.extraction_rate;
+                if (document.activeElement.id !== 'maxInput') document.getElementById('maxInput').value = data.max_samples;
+                if (document.activeElement.id !== 'retentionSelect' && data.retention_hours !== undefined) {
+                    document.getElementById('retentionSelect').value = data.retention_hours;
+                }
+                
+                document.getElementById('rateVal').innerText = data.extraction_rate;
+                document.getElementById('currentSamples').innerText = data.current_samples;
+                
+                const extBtn = document.getElementById('toggleExtract');
+                extBtn.className = isExtracting ? 'btn-on' : 'btn-off';
+                extBtn.innerText = isExtracting ? 'Extraction: ACTIVE' : 'Extraction: OFF';
+
+                const recBtn = document.getElementById('toggleRecord');
+                recBtn.className = isRecording ? 'btn-on' : 'btn-off';
+                recBtn.innerText = isRecording ? 'Recording: REC' : 'Recording: OFF';
+
+                const slpBtn = document.getElementById('toggleSleep');
+                slpBtn.className = isSleepMode ? 'btn-on' : 'btn-off';
+                slpBtn.innerText = isSleepMode ? 'Sleep Mode: ON' : 'Sleep Mode: OFF';
+            });
+            
+            fetch('/api/logs').then(r => r.json()).then(data => {
+                document.getElementById('logBody').innerHTML = data.map(log => `
+                    <tr>
+                        <td>${log.timestamp}</td>
+                        <td><span class="badge">${log.id}</span></td>
+                        <td>${log.inference}</td>
+                        <td>${log.entrance}</td>
+                        <td>${log.exit}</td>
+                        <td>${log.duration}</td>
+                    </tr>
+                `).join('');
+            });
+        }
+        
+        function updateConfig() {
+            fetch('/api/config', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ 
+                    extract_enabled: isExtracting, 
+                    record_events: isRecording,
+                    sleep_mode: isSleepMode,
+                    extraction_rate: document.getElementById('rateInput').value, 
+                    max_samples: document.getElementById('maxInput').value,
+                    retention_hours: document.getElementById('retentionSelect').value
+                })
+            }).then(fetchState);
+        }
+        
+        function toggleExtraction() { isExtracting = !isExtracting; updateConfig(); }
+        function toggleRecording() { isRecording = !isRecording; updateConfig(); }
+        function toggleSleepMode() { isSleepMode = !isSleepMode; updateConfig(); }
+        
+        setInterval(fetchState, 2000);
+        fetchState();
+    </script>
+</body>
+</html>

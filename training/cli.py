@@ -1,7 +1,7 @@
 import os
 import torch
 from pathlib import Path
-from train import train_model
+from training.train import train_model
 
 def clear_screen():
     os.system('cls' if os.name == 'nt' else 'clear')
