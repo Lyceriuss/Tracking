@@ -1,7 +1,7 @@
 import os
 import torch
 from pathlib import Path
-from training.train import train_model
+from train import train_model
 
 def clear_screen():
     os.system('cls' if os.name == 'nt' else 'clear')
@@ -48,7 +48,7 @@ def main_menu():
     while True:
         clear_screen()
         print("=========================================")
-        print("  PEDESTRIAN ATTRIBUTE TRACKING PIPELINE ")
+        print("  Training pipeline ")
         print("=========================================")
         print("1. Start a New Training Run")
         print("2. Resume from Checkpoint")
