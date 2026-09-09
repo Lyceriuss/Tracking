@@ -25,6 +25,7 @@ layer_config = [
     (4, 512, 2),  # Stage 4: 4 bottleneck blocks, 512 channels
     (1, 1024, 2)  # Stage 5: 1 final block, scaling to 1024 channels
 ]
+```
 
 ### Architectural Advantages
 1. **Grouped Convolutions (RegNet Efficiency):** Inside the bottleneck layers (`conv2`), the model uses grouped convolutions (`groups = mid_c // group_width`), drastically slashing Floating Point Operations (FLOPs) and parameter size while preserving high-dimensional representation power.

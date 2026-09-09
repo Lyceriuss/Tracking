@@ -1,7 +1,6 @@
 # Datasets and Images
 data/
 *.jpg
-*.png
 exports/
 
 *.mp4
