@@ -15,7 +15,7 @@ services:
     container_name: par_inference_node
     restart: unless-stopped
     ports:
-      - "5000:5000"
+      - "127.0.0.1:5000:5000"
     volumes:
       - ./exports:/app/exports
     environment:

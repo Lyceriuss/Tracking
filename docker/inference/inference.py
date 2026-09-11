@@ -11,7 +11,6 @@ import pickle
 import supervision as sv
 from collections import defaultdict, deque
 
-
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import data_manager
@@ -24,6 +23,7 @@ logging.basicConfig(
 
 GALLERY_PATH = "exports/reid_gallery.pkl"
 os.makedirs("exports", exist_ok=True)
+os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp|fflags;nobuffer|flags;low_delay"
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Pure ONNX Inference Engine")
@@ -81,6 +81,55 @@ def draw_pedestrian_data(frame, display_id, bbox, display_attrs, buf_count, top_
     for attr in display_attrs:
         cv2.putText(frame, attr, (x2 + 6, y_text), cv2.FONT_HERSHEY_SIMPLEX, 0.48, (0, 255, 255), 2)
         y_text += 20
+        
+class ReIDManager:
+    def __init__(self, gallery_path, ttl_hours=24):
+        self.gallery_path = gallery_path
+        self.ttl_seconds = ttl_hours * 3600
+        self.gallery = {}
+        self.next_global_id = 1
+        self.last_wipe = time.time()
+        
+        self._boot_routine()
+
+    def _boot_routine(self):
+        """Checks the disk on startup to load or purge existing biometric data."""
+        if os.path.exists(self.gallery_path):
+            file_age = time.time() - os.path.getmtime(self.gallery_path)
+            
+            if file_age > self.ttl_seconds:
+                logging.info(f"[SECURITY] Boot purge: ReID Vault older than {self.ttl_seconds/3600}h. Deleting data.")
+                os.remove(self.gallery_path)
+            else:
+                with open(self.gallery_path, "rb") as f:
+                    self.gallery = pickle.load(f)
+                if self.gallery:
+                    self.next_global_id = max((k for k in self.gallery.keys() if isinstance(k, int)), default=0) + 1
+                logging.info(f"Loaded {len(self.gallery)} identities from memory vault.")
+
+    def check_live_ttl(self):
+        """Checks if the TTL has expired during the live video loop."""
+        current_time = time.time()
+        if current_time - self.last_wipe > self.ttl_seconds:
+            logging.info("[SECURITY] TTL limit reached during live inference. Purging ReID vault.")
+            self.gallery.clear()
+            self.next_global_id = 1
+            self.last_wipe = current_time
+            if os.path.exists(self.gallery_path):
+                os.remove(self.gallery_path)
+            return True 
+        return False
+
+    def save_to_disk(self):
+        """Safely serializes the memory vault to disk."""
+        with open(self.gallery_path, "wb") as f:
+            pickle.dump(self.gallery, f)
+            
+    def get_new_id(self):
+        """Assigns the next available global ID."""
+        assigned_id = self.next_global_id
+        self.next_global_id += 1
+        return assigned_id
 
 class PedestrianState:
     def __init__(self, top_k=10, fps=30):
@@ -131,6 +180,10 @@ class PedestrianState:
 
 def run_inference_engine(args):
     try:
+        # --- SECURITY & GDPR CONFIGURATION ---
+        SAVE_CROPS = os.getenv("SAVE_IMAGE_CROPS", "False").lower() == "true"
+        TTL_HOURS = int(os.getenv("REID_TTL_HOURS", "24"))
+        
         providers = ['CPUExecutionProvider']
         yolo_session = ort.InferenceSession(args.yolo_model, providers=providers)
         par_session = ort.InferenceSession(args.par_model, providers=providers)
@@ -141,37 +194,27 @@ def run_inference_engine(args):
         reid_input_name = reid_session.get_inputs()[0].name
         
         cap = cv2.VideoCapture(args.source)
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         fps = cap.get(cv2.CAP_PROP_FPS) or 12.0
         
         byte_tracker = sv.ByteTrack(track_activation_threshold=0.4, frame_rate=int(fps))
         track_states = defaultdict(lambda: PedestrianState(top_k=10, fps=int(fps)))
         missing_tracks = defaultdict(int)
         
-        # --- NEW: Disk Persistence Boot Routine ---
-        reid_gallery = {}       
-        next_global_id = 1
-        
-        if os.path.exists(GALLERY_PATH):
-            with open(GALLERY_PATH, "rb") as f:
-                reid_gallery = pickle.load(f)
-            if reid_gallery:
-                next_global_id = max((k for k in reid_gallery.keys() if isinstance(k, int)), default=0) + 1
-            logging.info(f"Loaded {len(reid_gallery)} identities from memory vault.")
-        
+        # --- Clean Initialization using ReIDManager ---
+        reid_manager = ReIDManager(GALLERY_PATH, ttl_hours=TTL_HOURS)
         track_to_global = {}    
         last_gc_time = time.time()
-        # ----------------------------------------
         
         logging.info(f"Connected to RTSP stream: {args.source}")
         frame_idx = 0
         
-        # --- NEW: SLEEP MODE & RECORDING STATE SETUP ---
+        # --- SLEEP MODE & RECORDING STATE SETUP ---
         prev_gray = None
         last_motion_time = 0
         last_person_time = 0
         video_writer = None
         os.makedirs("exports/events", exist_ok=True)
-        # -----------------------------------------------
 
         while True:
             ret, frame = cap.read()
@@ -181,25 +224,27 @@ def run_inference_engine(args):
                 byte_tracker, track_states, missing_tracks = sv.ByteTrack(track_activation_threshold=0.4, frame_rate=int(fps)), defaultdict(lambda: PedestrianState(top_k=10, fps=int(fps))), defaultdict(int)
                 continue
                 
-            # --- Garbage Collector Loop ---
             current_time = time.time()
-            if current_time - last_gc_time > 60:
-                retention_hours = data_manager.engine_config.get("retention_hours", 168) # Default 7 days
+            
+            # --- SECURITY: LIVE TTL PURGE CHECK ---
+            if reid_manager.check_live_ttl():
+                track_to_global.clear()  # Drop active tracking mapping if vault is wiped
                 
+            # --- Garbage Collector Loop ---
+            if current_time - last_gc_time > 60:
+                retention_hours = data_manager.engine_config.get("retention_hours", 168)
                 if retention_hours > 0:
                     expired_ids = []
-                    for g_id, g_data in reid_gallery.items():
-                        # VIP Tagging Immunity - Don't delete tagged people
+                    # Use list() to safely iterate while modifying the dict
+                    for g_id, g_data in list(reid_manager.gallery.items()): 
                         if not g_data.get("label") and (current_time - g_data["last_seen"] > retention_hours * 3600):
                             expired_ids.append(g_id)
                             
                     for eid in expired_ids:
-                        del reid_gallery[eid]
+                        del reid_manager.gallery[eid]
                         logging.info(f"Garbage Collector purged expired ID: {eid}")
                 
-                # Save state to disk
-                with open(GALLERY_PATH, "wb") as f:
-                    pickle.dump(reid_gallery, f)
+                reid_manager.save_to_disk()
                 last_gc_time = current_time
 
             frame_idx += 1
@@ -237,11 +282,11 @@ def run_inference_engine(args):
                         for box, track_id in zip(tracked_detections.xyxy, tracked_detections.tracker_id):
                             track_id = int(track_id)
                             current_ids_in_frame.add(track_id)
-                            last_person_time = current_time # <-- CRITICAL: Log that someone was seen
+                            last_person_time = current_time
                             
                             x1, y1, x2, y2 = map(int, box)
-                            
                             cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
+                            
                             if track_states[track_id].entry_point is None:
                                 track_states[track_id].entry_point = (cx, cy)
                             track_states[track_id].last_point = (cx, cy)
@@ -281,29 +326,29 @@ def run_inference_engine(args):
                             avg_fingerprint = avg_fingerprint / (np.linalg.norm(avg_fingerprint) + 1e-10)
                             
                             best_sim, best_id = 0.0, None
-                            for g_id, g_data in reid_gallery.items():
+                            for g_id, g_data in reid_manager.gallery.items():
                                 sim = compute_similarity(avg_fingerprint, g_data["embedding"])
                                 if sim > best_sim:
                                     best_sim, best_id = sim, g_id
                                     
                             if best_sim > 0.80:
                                 track_to_global[t_id] = best_id
-                                old_emb = reid_gallery[best_id]["embedding"]
-                                reid_gallery[best_id]["embedding"] = 0.8 * old_emb + 0.2 * avg_fingerprint
-                                reid_gallery[best_id]["last_seen"] = current_time
+                                old_emb = reid_manager.gallery[best_id]["embedding"]
+                                reid_manager.gallery[best_id]["embedding"] = 0.8 * old_emb + 0.2 * avg_fingerprint
+                                reid_manager.gallery[best_id]["last_seen"] = current_time
                             else:
-                                track_to_global[t_id] = next_global_id
-                                reid_gallery[next_global_id] = {
+                                new_g_id = reid_manager.get_new_id()
+                                track_to_global[t_id] = new_g_id
+                                reid_manager.gallery[new_g_id] = {
                                     "embedding": avg_fingerprint,
                                     "last_seen": current_time,
                                     "label": None
                                 }
-                                next_global_id += 1
                         
                         # --- Custom Tags for Live Stream Display ---
                         if t_id in track_to_global:
                             g_id = track_to_global[t_id]
-                            custom_label = reid_gallery.get(g_id, {}).get("label")
+                            custom_label = reid_manager.gallery.get(g_id, {}).get("label")
                             display_id = custom_label if custom_label else f"G-{g_id}"
                         else:
                             display_id = f"Scan-{t_id}"
@@ -329,15 +374,16 @@ def run_inference_engine(args):
                         if stale_id in track_to_global:
                             g_id = track_to_global[stale_id]
                             
+                            # Safely check for external label updates (e.g. from the web UI saving to disk)
                             if os.path.exists(GALLERY_PATH):
                                 try:
                                     with open(GALLERY_PATH, "rb") as f:
                                         disk_gallery = pickle.load(f)
                                         if g_id in disk_gallery and disk_gallery[g_id].get("label"):
-                                            reid_gallery[g_id]["label"] = disk_gallery[g_id]["label"]
+                                            reid_manager.gallery[g_id]["label"] = disk_gallery[g_id]["label"]
                                 except: pass
                                 
-                            custom_label = reid_gallery.get(g_id, {}).get("label")
+                            custom_label = reid_manager.gallery.get(g_id, {}).get("label")
                             final_log_id = f"{custom_label} (#{g_id})" if custom_label else f"G-{g_id}"
                         else:
                             final_log_id = f"Unregistered-{stale_id}"

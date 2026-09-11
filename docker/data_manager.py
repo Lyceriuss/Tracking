@@ -48,9 +48,37 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 app = Flask(__name__, template_folder=os.path.join(BASE_DIR, 'templates'))
 
 output_frame = None
-
 lock = threading.Lock()
 logging.getLogger('werkzeug').setLevel(logging.ERROR)
+
+# --- 🔒 SECURITY: API AUTHENTICATION ---
+# Set a default secure token in .env, or generate a random one on startup
+API_TOKEN = os.getenv("API_TOKEN", "default_secure_token_change_me")
+
+@app.before_request
+def verify_token():
+    # 1. Define routes that DO NOT need the token (UI, Streams, and Images)
+    exempt_exact = [
+        '/', 
+        '/review', 
+        '/video_feed',
+        '/api/config',  # Let the UI read the config
+        '/api/logs'     # Let the UI read the event logs
+    ]
+    
+    # Let the request pass through if it's UI or an exported image
+    if request.path in exempt_exact or request.path.startswith('/exports/'):
+        return None  
+        
+    # 2. Check for the token in the headers for all API endpoints
+    token = request.headers.get('X-API-Token')
+    
+    if token != API_TOKEN:
+        return jsonify({
+            "error": "Unauthorized Access",
+            "message": "A valid X-API-Token header is required."
+        }), 401
+# ---------------------------------------
 
 def update_frame(frame_bytes):
     global output_frame, lock
@@ -136,8 +164,6 @@ def export_track_data(track_id, state):
         
     logging.info(f"💾 Exported training material for Track {track_id}")
     return True
-
-
 
 # --- ROUTES ---
 

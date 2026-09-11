@@ -159,3 +159,33 @@ The provided Flask backend and HTML/JS frontend (`/templates`) serve as a founda
 * **Grid Layouts:** Users can easily modify the CSS to support side-by-side video grids for multi-stream monitoring.
 * **Global Tracking Logs:** By tapping into the backend JSON API (`/api/stats`), developers can build custom global logs that display real-time tracking events (e.g., *"Target #42 detected on CAM_02"*).
 * **Automated Alerts:** Since the data is parsed locally, users can write simple scripts to trigger webhooks, Slack messages, or local alarms when specific conditions (like unauthorized ReID tags or tripped line-crossings) occur across the network.
+
+
+
+## 🔒 Security & GDPR Compliance (Privacy by Design)
+
+This pipeline is engineered for deployment in semi-public spaces (retail, offices) and strictly adheres to European GDPR guidelines through "Privacy by Design." It is default built to operate as a statistical analytics engine rather than a surveillance tool. However it is a fully functional surveillance tool by simple toggling the settings.
+
+### 1. RAM-Only Inference (Data Minimization)
+By default, the system extracts behavioral metadata and immediately drops the visual data.
+* **How it works:** Governed by `SAVE_IMAGE_CROPS=False` in the `.env` file.
+* **Impact:** Image crops (PII) are held strictly in volatile memory just long enough for the Besten model to infer attributes. Raw images of individuals are never written to the hard drive unless explicitly enabled by the administrator.
+
+### 2. Ephemeral ReID Vault (Automated TTL)
+To enforce the "Right to be Forgotten" and storage limitation principles, the biometric memory vault is entirely ephemeral.
+* **How it works:** The `ReIDManager` enforces a configurable Time-To-Live (default: `REID_TTL_HOURS=24`). 
+* **Impact:** The system continuously monitors the age of the ReID gallery during live inference and on boot. Once the TTL is reached, all mathematical signatures (`reid_gallery.pkl`) are automatically purged from both live RAM and the physical disk. 
+
+### 3. API Authentication
+Even when deployed on a secure Local Area Network (LAN), the backend is protected against unauthorized data access.
+* **How it works:** All data-extraction and configuration API endpoints are secured behind a Flask middleware requiring an `X-API-Token` header.
+* **Impact:** Prevents unauthorized users or scripts on the host network from scraping tracking logs, downloading metadata, or altering the engine's configuration. 
+
+### 4. Encrypted Video Transit (Network Security)
+By default, standard RTSP video feeds are transmitted in plaintext, making them vulnerable to packet sniffing on local networks. To secure the video transit to the inference engine, deployers must implement one of the following:
+* **RTSPS (Recommended):** Configure your IP cameras to use TLS encryption. Update the `.env` file to use the `rtsps://` protocol in the `STREAM_SOURCE` variable. The pipeline's FFmpeg backend will natively handle the decryption.
+* **VLAN Isolation:** If using legacy cameras that do not support RTSPS, the cameras and the edge processing node must be deployed on an isolated, air-gapped VLAN with strict firewall rules blocking standard employee or guest network access.
+* **Encrypted Tunneling:** If pulling streams across untrusted networks, encapsulate the RTSP traffic within a WireGuard, IPsec, or Tailscale VPN tunnel.
+
+### 5. Mathematical Abstraction
+The system does not save faces or bodies for identification. The OSNet ReID model converts pedestrian appearances into arrays of floating-point numbers. Without the proprietary ONNX model weights to decode them, these signatures are mathematically useless to an outside attacker.
